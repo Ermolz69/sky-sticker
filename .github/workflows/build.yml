@@ -23,27 +23,36 @@ jobs:
         
     - name: Restore dependencies
       run: |
-        if (Test-Path "*.sln") {
-          dotnet restore *.sln
+        $slnFile = Get-ChildItem -Path . -Filter "*.sln" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($slnFile) {
+          Write-Host "Found solution file: $($slnFile.FullName)"
+          dotnet restore $slnFile.FullName
         } else {
+          Write-Host "No .sln file found, restoring all projects"
           dotnet restore
         }
       shell: pwsh
       
     - name: Build
       run: |
-        if (Test-Path "*.sln") {
-          dotnet build *.sln --no-restore --configuration Release
+        $slnFile = Get-ChildItem -Path . -Filter "*.sln" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($slnFile) {
+          Write-Host "Found solution file: $($slnFile.FullName)"
+          dotnet build $slnFile.FullName --no-restore --configuration Release
         } else {
+          Write-Host "No .sln file found, building all projects"
           dotnet build --no-restore --configuration Release
         }
       shell: pwsh
       
     - name: Test (if any)
       run: |
-        if (Test-Path "*.sln") {
-          dotnet test *.sln --no-build --configuration Release --verbosity normal
+        $slnFile = Get-ChildItem -Path . -Filter "*.sln" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($slnFile) {
+          Write-Host "Found solution file: $($slnFile.FullName)"
+          dotnet test $slnFile.FullName --no-build --configuration Release --verbosity normal
         } else {
+          Write-Host "No .sln file found, testing all projects"
           dotnet test --no-build --configuration Release --verbosity normal
         }
       shell: pwsh

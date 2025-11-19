@@ -159,6 +159,14 @@ public class OverlayForm : Form
         };
         _contextMenu.Items.Add(alwaysOnTopItem);
 
+        // Pin / Unpin
+        var pinItem = new ToolStripMenuItem(_imageItem.IsPinned ? "Unpin" : "Pin");
+        pinItem.Click += (s, e) =>
+        {
+            TogglePin();
+        };
+        _contextMenu.Items.Add(pinItem);
+
         _contextMenu.Items.Add(new ToolStripSeparator());
 
         // Reset Size
@@ -432,6 +440,10 @@ public class OverlayForm : Form
 
     private void OverlayForm_MouseEnter(object? sender, EventArgs e)
     {
+        // Если изображение закреплено, не показываем интерактивные элементы
+        if (_imageItem.IsPinned)
+            return;
+            
         _isHovered = true;
         if (_settingsButton != null)
         {
@@ -454,6 +466,10 @@ public class OverlayForm : Form
 
     private void OverlayForm_MouseDown(object? sender, MouseEventArgs e)
     {
+        // Если изображение закреплено, блокируем все интеракции
+        if (_imageItem.IsPinned)
+            return;
+            
         if (e.Button == MouseButtons.Left)
         {
             _activeResizeHandle = GetResizeHandle(e.Location);
@@ -473,6 +489,13 @@ public class OverlayForm : Form
 
     private void OverlayForm_MouseMove(object? sender, MouseEventArgs e)
     {
+        // Если изображение закреплено, блокируем все интеракции
+        if (_imageItem.IsPinned)
+        {
+            this.Cursor = Cursors.Default;
+            return;
+        }
+        
         if (_isDragging && e.Button == MouseButtons.Left)
         {
             // Перемещение обрабатывается через WinAPI
@@ -568,6 +591,10 @@ public class OverlayForm : Form
 
     private void OverlayForm_MouseClick(object? sender, MouseEventArgs e)
     {
+        // Если изображение закреплено, блокируем контекстное меню
+        if (_imageItem.IsPinned)
+            return;
+            
         if (e.Button == MouseButtons.Right)
         {
             _contextMenu?.Show(this, e.Location);
@@ -605,7 +632,8 @@ public class OverlayForm : Form
             this.WindowState = FormWindowState.Normal;
         }
 
-        if (_settingsButton != null && _isHovered)
+        // Если изображение закреплено, не показываем кнопку настроек
+        if (_settingsButton != null && _isHovered && !_imageItem.IsPinned)
         {
             _settingsButton.Location = new Point(this.Width - SettingsButtonSize - 5, 5);
         }
@@ -628,6 +656,62 @@ public class OverlayForm : Form
             _imageItem.LastUsed = DateTime.Now;
             _libraryService.Save(_imageItems);
         }
+    }
+
+    public void TogglePin()
+    {
+        _imageItem.IsPinned = !_imageItem.IsPinned;
+        _libraryService.Save(_imageItems);
+        
+        // Если закрепили, скрываем интерактивные элементы
+        if (_imageItem.IsPinned)
+        {
+            _isHovered = false;
+            if (_settingsButton != null)
+                _settingsButton.Visible = false;
+        }
+        this.Invalidate();
+    }
+    
+    public void SetPinned(bool pinned)
+    {
+        if (_imageItem.IsPinned != pinned)
+        {
+            _imageItem.IsPinned = pinned;
+            _libraryService.Save(_imageItems);
+            
+            // Если закрепили, скрываем интерактивные элементы
+            if (_imageItem.IsPinned)
+            {
+                _isHovered = false;
+                if (_settingsButton != null)
+                    _settingsButton.Visible = false;
+            }
+            this.Invalidate();
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        // Блокируем все события мыши, когда изображение закреплено
+        if (_imageItem.IsPinned)
+        {
+            const int WM_RBUTTONDOWN = 0x0204;
+            const int WM_RBUTTONUP = 0x0205;
+            const int WM_RBUTTONDBLCLK = 0x0206;
+            const int WM_CONTEXTMENU = 0x007B;
+            const int WM_NCRBUTTONDOWN = 0x00A4;
+            const int WM_NCRBUTTONUP = 0x00A5;
+            
+            if (m.Msg == WM_RBUTTONDOWN || m.Msg == WM_RBUTTONUP || 
+                m.Msg == WM_RBUTTONDBLCLK || m.Msg == WM_CONTEXTMENU ||
+                m.Msg == WM_NCRBUTTONDOWN || m.Msg == WM_NCRBUTTONUP)
+            {
+                return; // Блокируем сообщение
+            }
+        }
+        
+        base.WndProc(ref m);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)

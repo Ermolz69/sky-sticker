@@ -13,6 +13,8 @@ public class MainForm : Form
     private Panel _detailsPanel = null!;
     private PictureBox _previewBox = null!;
     private Label _detailsLabel = null!;
+    private Button _btnUnpin = null!;
+    private readonly Dictionary<Guid, OverlayForm> _openOverlays = new();
 
     public MainForm()
     {
@@ -79,13 +81,30 @@ public class MainForm : Form
         _detailsLabel = new Label
         {
             Location = new Point(10, 220),
-            Size = new Size(230, 170),
-            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+            Size = new Size(230, 120),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             AutoSize = false
         };
 
+        _btnUnpin = new Button
+        {
+            Text = "🔓 Unpin (Открепить)",
+            Location = new Point(10, 350),
+            Size = new Size(230, 25),
+            Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+            BackColor = Color.FromArgb(255, 193, 7),
+            ForeColor = Color.Black,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Bold),
+            Visible = false
+        };
+        _btnUnpin.FlatAppearance.BorderSize = 0;
+        _btnUnpin.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 213, 0);
+        _btnUnpin.Click += BtnUnpin_Click;
+
         _detailsPanel.Controls.Add(_previewBox);
         _detailsPanel.Controls.Add(_detailsLabel);
+        _detailsPanel.Controls.Add(_btnUnpin);
 
         // Bottom Panel for buttons
         var bottomPanel = new Panel
@@ -250,6 +269,8 @@ public class MainForm : Form
         if (hasSelection && _listView.SelectedItems[0].Tag is ImageItem item)
         {
             ShowDetails(item);
+            // Обновляем текст кнопки Pin
+            _btnPin.Text = item.IsPinned ? "📌 Unpin (Открепить)" : "📌 Pin / Открыть поверх";
         }
         else
         {
@@ -283,9 +304,13 @@ public class MainForm : Form
                              $"Путь: {item.FilePath}\n\n" +
                              $"Прозрачность: {item.Opacity}%\n" +
                              $"Всегда поверх: {(item.AlwaysOnTop ? "Да" : "Нет")}\n" +
+                             $"Закреплено: {(item.IsPinned ? "Да" : "Нет")}\n" +
                              $"Последнее использование: {(item.LastUsed?.ToString("g") ?? "Никогда")}";
 
                 _detailsLabel.Text = details;
+                
+                // Показываем кнопку Unpin, если изображение закреплено и открыто
+                _btnUnpin.Visible = item.IsPinned && _openOverlays.ContainsKey(item.Id);
             }
             else
             {
@@ -307,6 +332,7 @@ public class MainForm : Form
         _previewBox.Image?.Dispose();
         _previewBox.Image = null;
         _detailsLabel.Text = "Выберите изображение для просмотра деталей";
+        _btnUnpin.Visible = false;
     }
 
     private string FormatFileSize(long bytes)
@@ -379,7 +405,26 @@ public class MainForm : Form
         var selectedItem = _listView.SelectedItems[0];
         if (selectedItem.Tag is ImageItem item)
         {
-            OpenOverlay(item);
+            if (item.IsPinned)
+            {
+                // Открепляем
+                item.IsPinned = false;
+                _libraryService.Save(_imageItems);
+                
+                // Обновляем OverlayForm, если он открыт
+                if (_openOverlays.TryGetValue(item.Id, out var overlay) && !overlay.IsDisposed)
+                {
+                    overlay.SetPinned(false);
+                }
+                
+                RefreshListView();
+                ShowDetails(item);
+            }
+            else
+            {
+                // Открываем/закрепляем
+                OpenOverlay(item);
+            }
         }
     }
 
@@ -387,8 +432,53 @@ public class MainForm : Form
     {
         item.LastUsed = DateTime.Now;
         _libraryService.Save(_imageItems);
+        
+        // Если уже открыто, просто активируем окно
+        if (_openOverlays.TryGetValue(item.Id, out var existingOverlay))
+        {
+            if (!existingOverlay.IsDisposed)
+            {
+                existingOverlay.Activate();
+                existingOverlay.BringToFront();
+                return;
+            }
+            else
+            {
+                _openOverlays.Remove(item.Id);
+            }
+        }
+        
         var overlay = new OverlayForm(item, _libraryService, _imageItems);
+        overlay.FormClosed += (s, e) => _openOverlays.Remove(item.Id);
         overlay.Show();
+        _openOverlays[item.Id] = overlay;
+        
+        // Обновляем детали, если это выбранный элемент
+        if (_listView.SelectedItems.Count > 0 && _listView.SelectedItems[0].Tag is ImageItem selectedItem && selectedItem.Id == item.Id)
+        {
+            ShowDetails(item);
+        }
+    }
+    
+    private void BtnUnpin_Click(object? sender, EventArgs e)
+    {
+        if (_listView.SelectedItems.Count == 0) return;
+
+        var selectedItem = _listView.SelectedItems[0];
+        if (selectedItem.Tag is ImageItem item && item.IsPinned)
+        {
+            item.IsPinned = false;
+            _libraryService.Save(_imageItems);
+            
+            // Обновляем OverlayForm, если он открыт
+            if (_openOverlays.TryGetValue(item.Id, out var overlay) && !overlay.IsDisposed)
+            {
+                overlay.SetPinned(false);
+            }
+            
+            RefreshListView();
+            ShowDetails(item);
+        }
     }
 
     private void MainForm_Resize(object? sender, EventArgs e)

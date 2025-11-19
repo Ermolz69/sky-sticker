@@ -15,5 +15,6 @@ public class ImageItem
     public bool AlwaysOnTop { get; set; } = true;
     public DateTime? LastUsed { get; set; }
     public int CornerRadius { get; set; } = 0; // Радиус скругления углов
+    public bool IsPinned { get; set; } = false; // Закреплено ли изображение (отключает интеракцию)
 }
 

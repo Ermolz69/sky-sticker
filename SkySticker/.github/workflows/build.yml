@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+        
+    - name: Restore dependencies
+      run: |
+        if (Test-Path "*.sln") {
+          dotnet restore *.sln
+        } else {
+          dotnet restore
+        }
+      shell: pwsh
+      
+    - name: Build
+      run: |
+        if (Test-Path "*.sln") {
+          dotnet build *.sln --no-restore --configuration Release
+        } else {
+          dotnet build --no-restore --configuration Release
+        }
+      shell: pwsh
+      
+    - name: Test (if any)
+      run: |
+        if (Test-Path "*.sln") {
+          dotnet test *.sln --no-build --configuration Release --verbosity normal
+        } else {
+          dotnet test --no-build --configuration Release --verbosity normal
+        }
+      shell: pwsh
+      continue-on-error: true
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: build-artifacts
+        path: |
+          **/bin/Release/**/*.exe
+          **/bin/Release/**/*.dll
+        retention-days: 7
+

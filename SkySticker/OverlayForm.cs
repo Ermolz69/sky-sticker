@@ -56,7 +56,6 @@ public class OverlayForm : Form
         // Этот цвет будет полностью прозрачным через COLORKEY
         this.BackColor = Color.FromArgb(1, 0, 1);
         this.TransparencyKey = Color.FromArgb(1, 0, 1);
-        this.TopMost = _imageItem.AlwaysOnTop;
         this.ShowInTaskbar = false;
         this.StartPosition = FormStartPosition.Manual;
         this.DoubleBuffered = true;
@@ -101,6 +100,9 @@ public class OverlayForm : Form
         // Кнопка настроек
         CreateSettingsButton();
         CreateContextMenu();
+        
+        // Устанавливаем TopMost после создания всех компонентов
+        UpdateTopMost();
 
         this.ResumeLayout(false);
     }
@@ -153,9 +155,9 @@ public class OverlayForm : Form
         alwaysOnTopItem.Click += (s, e) =>
         {
             _imageItem.AlwaysOnTop = !_imageItem.AlwaysOnTop;
-            this.TopMost = _imageItem.AlwaysOnTop;
             alwaysOnTopItem.Checked = _imageItem.AlwaysOnTop;
             _libraryService.Save(_imageItems);
+            UpdateTopMost();
         };
         _contextMenu.Items.Add(alwaysOnTopItem);
 
@@ -299,6 +301,9 @@ public class OverlayForm : Form
         uint transparentKey = 0x00010001;
         var opacity = (byte)(_imageItem.Opacity * 255 / 100);
         WinApiHelper.SetLayeredWindowAttributes(this.Handle, transparentKey, opacity, WinApiHelper.LWA_COLORKEY | WinApiHelper.LWA_ALPHA);
+        
+        // Устанавливаем click-through если изображение закреплено
+        WinApiHelper.SetClickThrough(this.Handle, _imageItem.IsPinned);
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
@@ -627,7 +632,12 @@ public class OverlayForm : Form
 
     private void OverlayForm_SizeChanged(object? sender, EventArgs e)
     {
-        if (this.WindowState == FormWindowState.Minimized)
+        // Если изображение закреплено, не позволяем сворачивать окно
+        if (_imageItem.IsPinned && this.WindowState == FormWindowState.Minimized)
+        {
+            this.WindowState = FormWindowState.Normal;
+        }
+        else if (this.WindowState == FormWindowState.Minimized)
         {
             this.WindowState = FormWindowState.Normal;
         }
@@ -644,6 +654,16 @@ public class OverlayForm : Form
         
         SavePositionAndSize();
     }
+    
+    protected override void SetVisibleCore(bool value)
+    {
+        // Если изображение закреплено, не позволяем скрывать окно
+        if (_imageItem.IsPinned && !value)
+        {
+            return; // Игнорируем попытку скрыть окно
+        }
+        base.SetVisibleCore(value);
+    }
 
     private void SavePositionAndSize()
     {
@@ -658,10 +678,46 @@ public class OverlayForm : Form
         }
     }
 
+    private void UpdateTopMost()
+    {
+        this.TopMost = _imageItem.AlwaysOnTop || _imageItem.IsPinned;
+    }
+    
+    private bool _temporarilyLowered = false;
+    
+    public bool IsPinned()
+    {
+        return _imageItem.IsPinned;
+    }
+    
+    public void TemporarilyLowerTopMost()
+    {
+        // Временно убираем TopMost только для pinned стикеров
+        if (_imageItem.IsPinned && this.TopMost && !_temporarilyLowered)
+        {
+            this.TopMost = false;
+            _temporarilyLowered = true;
+        }
+    }
+    
+    public void RestoreTopMost()
+    {
+        // Восстанавливаем TopMost только если он был временно опущен
+        if (_temporarilyLowered)
+        {
+            UpdateTopMost();
+            _temporarilyLowered = false;
+        }
+    }
+
     public void TogglePin()
     {
         _imageItem.IsPinned = !_imageItem.IsPinned;
         _libraryService.Save(_imageItems);
+        
+        // Устанавливаем click-through режим (клики проходят сквозь окно)
+        WinApiHelper.SetClickThrough(this.Handle, _imageItem.IsPinned);
+        UpdateTopMost();
         
         // Если закрепили, скрываем интерактивные элементы
         if (_imageItem.IsPinned)
@@ -680,6 +736,10 @@ public class OverlayForm : Form
             _imageItem.IsPinned = pinned;
             _libraryService.Save(_imageItems);
             
+            // Устанавливаем click-through режим (клики проходят сквозь окно)
+            WinApiHelper.SetClickThrough(this.Handle, _imageItem.IsPinned);
+            UpdateTopMost();
+            
             // Если закрепили, скрываем интерактивные элементы
             if (_imageItem.IsPinned)
             {
@@ -693,24 +753,17 @@ public class OverlayForm : Form
 
     protected override void WndProc(ref Message m)
     {
-        // Блокируем все события мыши, когда изображение закреплено
-        if (_imageItem.IsPinned)
+        const int WM_NCHITTEST = 0x0084;
+        const int HTTRANSPARENT = -1;
+
+        // Когда стикер закреплён – он прозрачный для мыши на этапе хит-теста
+        if (_imageItem.IsPinned && m.Msg == WM_NCHITTEST)
         {
-            const int WM_RBUTTONDOWN = 0x0204;
-            const int WM_RBUTTONUP = 0x0205;
-            const int WM_RBUTTONDBLCLK = 0x0206;
-            const int WM_CONTEXTMENU = 0x007B;
-            const int WM_NCRBUTTONDOWN = 0x00A4;
-            const int WM_NCRBUTTONUP = 0x00A5;
-            
-            if (m.Msg == WM_RBUTTONDOWN || m.Msg == WM_RBUTTONUP || 
-                m.Msg == WM_RBUTTONDBLCLK || m.Msg == WM_CONTEXTMENU ||
-                m.Msg == WM_NCRBUTTONDOWN || m.Msg == WM_NCRBUTTONUP)
-            {
-                return; // Блокируем сообщение
-            }
+            // Говорим системе: "я прозрачный, ищи окно ниже"
+            m.Result = (IntPtr)HTTRANSPARENT;
+            return;
         }
-        
+
         base.WndProc(ref m);
     }
 

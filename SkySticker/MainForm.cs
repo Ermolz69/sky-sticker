@@ -190,6 +190,22 @@ public class MainForm : Form
         
         // Вызываем Resize для правильного начального позиционирования
         this.Load += (s, e) => MainForm_Resize(s, e);
+        
+        // Обработчик для закрытия всех оверлеев при закрытии главной формы
+        this.FormClosed += MainForm_FormClosed;
+    }
+    
+    private void MainForm_FormClosed(object? sender, FormClosedEventArgs e)
+    {
+        // На всякий случай закрыть все оверлеи при закрытии главной формы
+        foreach (var overlay in _openOverlays.Values.ToList())
+        {
+            if (!overlay.IsDisposed)
+            {
+                overlay.Close();
+            }
+        }
+        _openOverlays.Clear();
     }
 
     private void LoadLibrary()

@@ -1,3 +1,5 @@
+using SkySticker.Forms;
+
 namespace SkySticker;
 
 static class Program

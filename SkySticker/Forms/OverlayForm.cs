@@ -1,7 +1,11 @@
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using SkySticker.Models;
+using SkySticker.Services;
+using SkySticker.Helpers;
+using SkySticker.Dialogs;
 
-namespace SkySticker;
+namespace SkySticker.Forms;
 
 public class OverlayForm : Form
 {
@@ -198,7 +202,7 @@ public class OverlayForm : Form
         var deleteItem = new ToolStripMenuItem("Delete from Library");
         deleteItem.Click += (s, e) =>
         {
-            if (MessageBox.Show($"Удалить '{_imageItem.DisplayName}' из библиотеки?", "Удаление",
+            if (MessageBox.Show($"Remove '{_imageItem.DisplayName}' from library?", "Remove",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
                 _imageItems.Remove(_imageItem);
@@ -253,8 +257,8 @@ public class OverlayForm : Form
             else
             {
                 var result = MessageBox.Show(
-                    $"Файл изображения не найден:\n{_imageItem.FilePath}\n\nУдалить запись '{_imageItem.DisplayName}' из библиотеки?",
-                    "Файл не найден",
+                    $"Image file not found:\n{_imageItem.FilePath}\n\nRemove entry '{_imageItem.DisplayName}' from library?",
+                    "File not found",
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Warning);
 
@@ -269,7 +273,7 @@ public class OverlayForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Ошибка при загрузке изображения: {ex.Message}", "Ошибка",
+            MessageBox.Show($"Error loading image: {ex.Message}", "Error",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
             this.Close();
         }
@@ -731,24 +735,28 @@ public class OverlayForm : Form
     
     public void SetPinned(bool pinned)
     {
-        if (_imageItem.IsPinned != pinned)
+        // Always apply the change, even if the state appears to be the same
+        // This ensures synchronization when called from MainForm
+        _imageItem.IsPinned = pinned;
+        _libraryService.Save(_imageItems);
+        
+        // Set click-through mode (clicks pass through the window when pinned)
+        WinApiHelper.SetClickThrough(this.Handle, _imageItem.IsPinned);
+        UpdateTopMost();
+        
+        // If pinned, hide interactive elements
+        if (_imageItem.IsPinned)
         {
-            _imageItem.IsPinned = pinned;
-            _libraryService.Save(_imageItems);
-            
-            // Устанавливаем click-through режим (клики проходят сквозь окно)
-            WinApiHelper.SetClickThrough(this.Handle, _imageItem.IsPinned);
-            UpdateTopMost();
-            
-            // Если закрепили, скрываем интерактивные элементы
-            if (_imageItem.IsPinned)
-            {
-                _isHovered = false;
-                if (_settingsButton != null)
-                    _settingsButton.Visible = false;
-            }
-            this.Invalidate();
+            _isHovered = false;
+            if (_settingsButton != null)
+                _settingsButton.Visible = false;
         }
+        else
+        {
+            // If unpinned, allow interactive elements to show on hover
+            // The hover state will be managed by MouseEnter/MouseLeave events
+        }
+        this.Invalidate();
     }
 
     protected override void WndProc(ref Message m)
@@ -777,55 +785,3 @@ public class OverlayForm : Form
     }
 }
 
-// Простой диалог для переименования
-public class RenameDialog : Form
-{
-    private TextBox _textBox = null!;
-    private string _newName = "";
-    public string NewName => _newName;
-
-    public RenameDialog(string currentName)
-    {
-        this.Text = "Rename";
-        this.Size = new Size(300, 120);
-        this.StartPosition = FormStartPosition.CenterParent;
-        this.FormBorderStyle = FormBorderStyle.FixedDialog;
-        this.MaximizeBox = false;
-        this.MinimizeBox = false;
-
-        _textBox = new TextBox
-        {
-            Text = currentName,
-            Location = new Point(12, 12),
-            Size = new Size(260, 23),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
-        };
-
-        var btnOk = new Button
-        {
-            Text = "OK",
-            DialogResult = DialogResult.OK,
-            Location = new Point(116, 50),
-            Size = new Size(75, 23)
-        };
-        btnOk.Click += (s, e) =>
-        {
-            _newName = _textBox.Text;
-            this.DialogResult = DialogResult.OK;
-        };
-
-        var btnCancel = new Button
-        {
-            Text = "Cancel",
-            DialogResult = DialogResult.Cancel,
-            Location = new Point(197, 50),
-            Size = new Size(75, 23)
-        };
-
-        this.Controls.Add(_textBox);
-        this.Controls.Add(btnOk);
-        this.Controls.Add(btnCancel);
-        this.AcceptButton = btnOk;
-        this.CancelButton = btnCancel;
-    }
-}

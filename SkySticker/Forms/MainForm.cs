@@ -1,4 +1,8 @@
-namespace SkySticker;
+using SkySticker.Models;
+using SkySticker.Services;
+using SkySticker.Forms;
+
+namespace SkySticker.Forms;
 
 public class MainForm : Form
 {
@@ -41,7 +45,7 @@ public class MainForm : Form
             Location = new Point(12, 12),
             Size = new Size(400, 23),
             Anchor = AnchorStyles.Top | AnchorStyles.Left,
-            PlaceholderText = "Поиск изображений..."
+            PlaceholderText = "Search images..."
         };
         _searchBox.TextChanged += SearchBox_TextChanged;
 
@@ -88,7 +92,7 @@ public class MainForm : Form
 
         _btnUnpin = new Button
         {
-            Text = "🔓 Unpin (Открепить)",
+            Text = "🔓 Unpin",
             Location = new Point(10, 350),
             Size = new Size(230, 25),
             Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
@@ -151,7 +155,7 @@ public class MainForm : Form
 
         _btnPin = new Button
         {
-            Text = "📌 Pin / Открыть поверх",
+            Text = "📌 Pin / Open on Top",
             Size = new Size(200, btnHeight),
             Location = new Point(250, 5),
             Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
@@ -171,7 +175,7 @@ public class MainForm : Form
         bottomPanel.Controls.Add(_btnPin);
 
         // MainForm
-        this.Text = "SkySticker - Библиотека изображений";
+        this.Text = "SkySticker - Image Library";
         this.Size = new Size(690, 510);
         // Минимальный размер: 12 (отступ слева) + 400 (ListView) + 16 (отступ) + 250 (DetailsPanel) + 12 (отступ справа) = 690
         this.MinimumSize = new Size(690, 400);
@@ -286,7 +290,7 @@ public class MainForm : Form
         {
             ShowDetails(item);
             // Обновляем текст кнопки Pin
-            _btnPin.Text = item.IsPinned ? "📌 Unpin (Открепить)" : "📌 Pin / Открыть поверх";
+            _btnPin.Text = item.IsPinned ? "📌 Unpin" : "📌 Pin / Open on Top";
         }
         else
         {
@@ -314,32 +318,32 @@ public class MainForm : Form
                 _previewBox.Image = preview;
 
                 var fileInfo = new FileInfo(item.FilePath);
-                var details = $"Имя: {item.DisplayName}\n\n" +
-                             $"Разрешение: {original.Width} × {original.Height}\n" +
-                             $"Размер файла: {FormatFileSize(fileInfo.Length)}\n" +
-                             $"Путь: {item.FilePath}\n\n" +
-                             $"Прозрачность: {item.Opacity}%\n" +
-                             $"Всегда поверх: {(item.AlwaysOnTop ? "Да" : "Нет")}\n" +
-                             $"Закреплено: {(item.IsPinned ? "Да" : "Нет")}\n" +
-                             $"Последнее использование: {(item.LastUsed?.ToString("g") ?? "Никогда")}";
+                var details = $"Name: {item.DisplayName}\n\n" +
+                             $"Resolution: {original.Width} × {original.Height}\n" +
+                             $"File size: {FormatFileSize(fileInfo.Length)}\n" +
+                             $"Path: {item.FilePath}\n\n" +
+                             $"Opacity: {item.Opacity}%\n" +
+                             $"Always on top: {(item.AlwaysOnTop ? "Yes" : "No")}\n" +
+                             $"Pinned: {(item.IsPinned ? "Yes" : "No")}\n" +
+                             $"Last used: {(item.LastUsed?.ToString("g") ?? "Never")}";
 
                 _detailsLabel.Text = details;
                 
-                // Показываем кнопку Unpin, если изображение закреплено и открыто
+                // Show Unpin button if image is pinned and open
                 _btnUnpin.Visible = item.IsPinned && _openOverlays.ContainsKey(item.Id);
             }
             else
             {
                 _previewBox.Image?.Dispose();
                 _previewBox.Image = null;
-                _detailsLabel.Text = $"Файл не найден:\n{item.FilePath}";
+                _detailsLabel.Text = $"File not found:\n{item.FilePath}";
             }
         }
         catch (Exception ex)
         {
             _previewBox.Image?.Dispose();
             _previewBox.Image = null;
-            _detailsLabel.Text = $"Ошибка загрузки:\n{ex.Message}";
+            _detailsLabel.Text = $"Loading error:\n{ex.Message}";
         }
     }
 
@@ -347,7 +351,7 @@ public class MainForm : Form
     {
         _previewBox.Image?.Dispose();
         _previewBox.Image = null;
-        _detailsLabel.Text = "Выберите изображение для просмотра деталей";
+        _detailsLabel.Text = "Select an image to view details";
         _btnUnpin.Visible = false;
     }
 
@@ -369,7 +373,7 @@ public class MainForm : Form
         using var openFileDialog = new OpenFileDialog
         {
             Filter = "Image files (*.jpg;*.jpeg;*.png;*.gif;*.bmp)|*.jpg;*.jpeg;*.png;*.gif;*.bmp|All files (*.*)|*.*",
-            Title = "Выберите изображение",
+            Title = "Select Image",
             Multiselect = true
         };
 
@@ -404,7 +408,7 @@ public class MainForm : Form
         var selectedItem = _listView.SelectedItems[0];
         if (selectedItem.Tag is ImageItem item)
         {
-            if (MessageBox.Show($"Удалить '{item.DisplayName}' из библиотеки?", "Удаление",
+            if (MessageBox.Show($"Remove '{item.DisplayName}' from library?", "Remove",
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
             {
                 _imageItems.Remove(item);
@@ -423,11 +427,11 @@ public class MainForm : Form
         {
             if (item.IsPinned)
             {
-                // Открепляем
+                // Unpin
                 item.IsPinned = false;
                 _libraryService.Save(_imageItems);
                 
-                // Обновляем OverlayForm, если он открыт
+                // Update OverlayForm if it's open
                 if (_openOverlays.TryGetValue(item.Id, out var overlay) && !overlay.IsDisposed)
                 {
                     overlay.SetPinned(false);
@@ -435,10 +439,12 @@ public class MainForm : Form
                 
                 RefreshListView();
                 ShowDetails(item);
+                // Update Pin button text
+                _btnPin.Text = "📌 Pin / Open on Top";
             }
             else
             {
-                // Открываем/закрепляем
+                // Open/Pin
                 OpenOverlay(item);
             }
         }
@@ -449,7 +455,7 @@ public class MainForm : Form
         item.LastUsed = DateTime.Now;
         _libraryService.Save(_imageItems);
         
-        // Если уже открыто, просто активируем окно
+        // If already open, just activate the window
         if (_openOverlays.TryGetValue(item.Id, out var existingOverlay))
         {
             if (!existingOverlay.IsDisposed)
@@ -469,7 +475,7 @@ public class MainForm : Form
         overlay.Show();
         _openOverlays[item.Id] = overlay;
         
-        // Обновляем детали, если это выбранный элемент
+        // Update details if this is the selected item
         if (_listView.SelectedItems.Count > 0 && _listView.SelectedItems[0].Tag is ImageItem selectedItem && selectedItem.Id == item.Id)
         {
             ShowDetails(item);
@@ -483,17 +489,40 @@ public class MainForm : Form
         var selectedItem = _listView.SelectedItems[0];
         if (selectedItem.Tag is ImageItem item && item.IsPinned)
         {
-            item.IsPinned = false;
-            _libraryService.Save(_imageItems);
+            // Save the item ID to restore selection after refresh
+            var itemId = item.Id;
             
-            // Обновляем OverlayForm, если он открыт
-            if (_openOverlays.TryGetValue(item.Id, out var overlay) && !overlay.IsDisposed)
+            // Update OverlayForm FIRST if it's open (before changing item.IsPinned)
+            if (_openOverlays.TryGetValue(itemId, out var overlay) && !overlay.IsDisposed)
             {
                 overlay.SetPinned(false);
             }
             
+            // Unpin the item
+            item.IsPinned = false;
+            _libraryService.Save(_imageItems);
+            
+            // Refresh the list view
             RefreshListView();
-            ShowDetails(item);
+            
+            // Restore selection after refresh
+            foreach (ListViewItem lvItem in _listView.Items)
+            {
+                if (lvItem.Tag is ImageItem imgItem && imgItem.Id == itemId)
+                {
+                    lvItem.Selected = true;
+                    lvItem.EnsureVisible();
+                    break;
+                }
+            }
+            
+            // Update UI - this will also hide the Unpin button since item is no longer pinned
+            if (_listView.SelectedItems.Count > 0 && _listView.SelectedItems[0].Tag is ImageItem selectedImgItem)
+            {
+                ShowDetails(selectedImgItem);
+                // Update Pin button text
+                _btnPin.Text = "📌 Pin / Open on Top";
+            }
         }
     }
 

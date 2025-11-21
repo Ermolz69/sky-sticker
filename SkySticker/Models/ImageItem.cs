@@ -1,4 +1,4 @@
-namespace SkySticker;
+namespace SkySticker.Models;
 
 public class ImageItem
 {

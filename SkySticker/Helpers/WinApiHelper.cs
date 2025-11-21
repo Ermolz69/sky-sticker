@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 
-namespace SkySticker;
+namespace SkySticker.Helpers;
 
 public static class WinApiHelper
 {

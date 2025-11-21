@@ -1,6 +1,7 @@
 using System.Text.Json;
+using SkySticker.Models;
 
-namespace SkySticker;
+namespace SkySticker.Services;
 
 public class ImageLibraryService
 {
@@ -56,7 +57,7 @@ public class ImageLibraryService
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Ошибка при сохранении библиотеки: {ex.Message}", "Ошибка", 
+            MessageBox.Show($"Error saving library: {ex.Message}", "Error", 
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }

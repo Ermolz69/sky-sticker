@@ -16,5 +16,9 @@ public class ImageItem
     public DateTime? LastUsed { get; set; }
     public int CornerRadius { get; set; } = 0; // Радиус скругления углов
     public bool IsPinned { get; set; } = false; // Закреплено ли изображение (отключает интеракцию)
+    public bool FlipHorizontal { get; set; } = false; // Инверсия по горизонтали
+    public bool FlipVertical { get; set; } = false; // Инверсия по вертикали
+    public float RotationAngle { get; set; } = 0; // Угол поворота в градусах (0-360)
+    public bool IsRotationModeEnabled { get; set; } = false; // Включен ли режим поворота
 }
 

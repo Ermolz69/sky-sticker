@@ -18,6 +18,9 @@ public class OverlayForm : Form
     private Point _dragStartPoint;
     private Point _formStartLocation;
     private ResizeHandle? _activeResizeHandle;
+    private bool _isRotating;
+    private Point _rotationStartPoint;
+    private float _rotationStartAngle;
     private Button? _settingsButton;
     private ContextMenuStrip? _contextMenu;
     private System.Windows.Forms.Timer? _fadeInTimer;
@@ -100,6 +103,8 @@ public class OverlayForm : Form
         this.Move += OverlayForm_Move;
         this.SizeChanged += OverlayForm_SizeChanged;
         this.MouseClick += OverlayForm_MouseClick;
+        this.KeyDown += OverlayForm_KeyDown;
+        this.KeyPreview = true; // Enable key events
 
         // Кнопка настроек
         CreateSettingsButton();
@@ -172,6 +177,60 @@ public class OverlayForm : Form
             TogglePin();
         };
         _contextMenu.Items.Add(pinItem);
+
+        _contextMenu.Items.Add(new ToolStripSeparator());
+
+        // Flip menu
+        var flipMenu = new ToolStripMenuItem("Flip");
+        
+        // Flip Horizontal
+        var flipHorizontalItem = new ToolStripMenuItem("Flip Horizontal");
+        flipHorizontalItem.Checked = _imageItem.FlipHorizontal;
+        flipHorizontalItem.Click += (s, e) =>
+        {
+            _imageItem.FlipHorizontal = !_imageItem.FlipHorizontal;
+            flipHorizontalItem.Checked = _imageItem.FlipHorizontal;
+            _libraryService.Save(_imageItems);
+            this.Invalidate();
+        };
+        flipMenu.DropDownItems.Add(flipHorizontalItem);
+        
+        // Flip Vertical
+        var flipVerticalItem = new ToolStripMenuItem("Flip Vertical");
+        flipVerticalItem.Checked = _imageItem.FlipVertical;
+        flipVerticalItem.Click += (s, e) =>
+        {
+            _imageItem.FlipVertical = !_imageItem.FlipVertical;
+            flipVerticalItem.Checked = _imageItem.FlipVertical;
+            _libraryService.Save(_imageItems);
+            this.Invalidate();
+        };
+        flipMenu.DropDownItems.Add(flipVerticalItem);
+        
+        _contextMenu.Items.Add(flipMenu);
+
+        // Enable/Disable Rotation Mode
+        var rotationModeItem = new ToolStripMenuItem(_imageItem.IsRotationModeEnabled ? "Disable Rotation Mode (R)" : "Enable Rotation Mode (R)");
+        rotationModeItem.Checked = _imageItem.IsRotationModeEnabled;
+        rotationModeItem.Click += (s, e) =>
+        {
+            _imageItem.IsRotationModeEnabled = !_imageItem.IsRotationModeEnabled;
+            rotationModeItem.Checked = _imageItem.IsRotationModeEnabled;
+            rotationModeItem.Text = _imageItem.IsRotationModeEnabled ? "Disable Rotation Mode (R)" : "Enable Rotation Mode (R)";
+            _libraryService.Save(_imageItems);
+            this.Invalidate();
+        };
+        _contextMenu.Items.Add(rotationModeItem);
+
+        // Reset Rotation
+        var resetRotationItem = new ToolStripMenuItem("Reset Rotation");
+        resetRotationItem.Click += (s, e) =>
+        {
+            _imageItem.RotationAngle = 0;
+            _libraryService.Save(_imageItems);
+            this.Invalidate();
+        };
+        _contextMenu.Items.Add(resetRotationItem);
 
         _contextMenu.Items.Add(new ToolStripSeparator());
 
@@ -353,6 +412,35 @@ public class OverlayForm : Form
         // Важно: отключаем обрезку для правильной обработки краев
         imageAttributes.SetWrapMode(System.Drawing.Drawing2D.WrapMode.TileFlipXY);
 
+        // Apply transformations for flipping and rotation
+        var transform = g.Transform;
+        var centerX = imageRect.X + imageRect.Width / 2.0f;
+        var centerY = imageRect.Y + imageRect.Height / 2.0f;
+        
+        // Apply transformations in order: translate to center, rotate, flip, translate back
+        if (_imageItem.RotationAngle != 0 || _imageItem.FlipHorizontal || _imageItem.FlipVertical)
+        {
+            // Move to center
+            g.TranslateTransform(centerX, centerY);
+            
+            // Apply rotation
+            if (_imageItem.RotationAngle != 0)
+            {
+                g.RotateTransform(_imageItem.RotationAngle);
+            }
+            
+            // Apply flipping
+            if (_imageItem.FlipHorizontal || _imageItem.FlipVertical)
+            {
+                float scaleX = _imageItem.FlipHorizontal ? -1.0f : 1.0f;
+                float scaleY = _imageItem.FlipVertical ? -1.0f : 1.0f;
+                g.ScaleTransform(scaleX, scaleY);
+            }
+            
+            // Move back
+            g.TranslateTransform(-centerX, -centerY);
+        }
+
         // Рисуем изображение с правильной обработкой прозрачности PNG
         // Фон уже очищен прозрачным цветом RGB(1,0,1), который станет прозрачным через COLORKEY
         g.DrawImage(
@@ -363,17 +451,36 @@ public class OverlayForm : Form
             _originalImage.Height, 
             GraphicsUnit.Pixel, 
             imageAttributes);
+        
+        // Восстанавливаем трансформацию
+        g.Transform = transform;
 
         // Рисуем рамку при наведении
         if (_isHovered)
         {
-            using var borderPen = new Pen(Color.FromArgb(68, 255, 255, 255), BorderThickness);
+            // Use different color when rotation mode is enabled
+            var borderColor = _imageItem.IsRotationModeEnabled 
+                ? Color.FromArgb(100, 255, 200, 0) // Orange/yellow when rotation mode is active
+                : Color.FromArgb(68, 255, 255, 255); // White normally
+            using var borderPen = new Pen(borderColor, BorderThickness);
             g.DrawRectangle(borderPen, clientRect.X + BorderThickness / 2, clientRect.Y + BorderThickness / 2,
                 clientRect.Width - BorderThickness, clientRect.Height - BorderThickness);
         }
+        
+        // Show rotation mode indicator
+        if (_imageItem.IsRotationModeEnabled && _isHovered)
+        {
+            using var font = new Font("Arial", 9, FontStyle.Bold);
+            using var textBrush = new SolidBrush(Color.FromArgb(200, 255, 200, 0));
+            var text = "Rotation Mode (R)";
+            var textSize = g.MeasureString(text, font);
+            g.DrawString(text, font, textBrush, 
+                clientRect.Left + 5, 
+                clientRect.Top + 5);
+        }
 
-        // Рисуем resize handles при наведении
-        if (_isHovered)
+        // Рисуем resize handles при наведении (только если режим поворота выключен)
+        if (_isHovered && !_imageItem.IsRotationModeEnabled)
         {
             DrawResizeHandles(g, clientRect);
         }
@@ -403,6 +510,7 @@ public class OverlayForm : Form
 
         return new Rectangle(x, y, width, height);
     }
+
 
     private void DrawResizeHandles(Graphics g, Rectangle rect)
     {
@@ -481,13 +589,24 @@ public class OverlayForm : Form
             
         if (e.Button == MouseButtons.Left)
         {
-            _activeResizeHandle = GetResizeHandle(e.Location);
-            if (_activeResizeHandle == ResizeHandle.None)
+            if (_imageItem.IsRotationModeEnabled)
             {
-                _isDragging = true;
-                _dragStartPoint = e.Location;
-                _formStartLocation = this.Location;
-                WinApiHelper.MoveWindow(this.Handle);
+                // Start rotation when rotation mode is enabled
+                _isRotating = true;
+                _rotationStartPoint = e.Location;
+                _rotationStartAngle = _imageItem.RotationAngle;
+                this.Cursor = Cursors.Cross;
+            }
+            else
+            {
+                _activeResizeHandle = GetResizeHandle(e.Location);
+                if (_activeResizeHandle == ResizeHandle.None)
+                {
+                    _isDragging = true;
+                    _dragStartPoint = e.Location;
+                    _formStartLocation = this.Location;
+                    WinApiHelper.MoveWindow(this.Handle);
+                }
             }
         }
         else if (e.Button == MouseButtons.Right)
@@ -505,7 +624,29 @@ public class OverlayForm : Form
             return;
         }
         
-        if (_isDragging && e.Button == MouseButtons.Left)
+        if (_isRotating && e.Button == MouseButtons.Left)
+        {
+            // Calculate rotation angle based on mouse movement
+            var centerX = this.ClientRectangle.Width / 2.0f;
+            var centerY = this.ClientRectangle.Height / 2.0f;
+            
+            // Calculate angle from center to start point
+            var startAngle = (float)(Math.Atan2(_rotationStartPoint.Y - centerY, _rotationStartPoint.X - centerX) * 180.0 / Math.PI);
+            
+            // Calculate angle from center to current point
+            var currentAngle = (float)(Math.Atan2(e.Location.Y - centerY, e.Location.X - centerX) * 180.0 / Math.PI);
+            
+            // Calculate rotation delta
+            var deltaAngle = currentAngle - startAngle;
+            
+            // Apply rotation
+            _imageItem.RotationAngle = (_rotationStartAngle + deltaAngle) % 360;
+            if (_imageItem.RotationAngle < 0)
+                _imageItem.RotationAngle += 360;
+            
+            this.Invalidate();
+        }
+        else if (_isDragging && e.Button == MouseButtons.Left)
         {
             // Перемещение обрабатывается через WinAPI
         }
@@ -515,14 +656,22 @@ public class OverlayForm : Form
         }
         else
         {
-            var handle = GetResizeHandle(e.Location);
-            if (handle != ResizeHandle.None)
+            if (_imageItem.IsRotationModeEnabled)
             {
-                this.Cursor = GetCursorForHandle(handle);
+                // Show rotation cursor when rotation mode is enabled
+                this.Cursor = Cursors.Cross;
             }
             else
             {
-                this.Cursor = Cursors.Default;
+                var handle = GetResizeHandle(e.Location);
+                if (handle != ResizeHandle.None)
+                {
+                    this.Cursor = GetCursorForHandle(handle);
+                }
+                else
+                {
+                    this.Cursor = Cursors.Default;
+                }
             }
         }
     }
@@ -593,8 +742,15 @@ public class OverlayForm : Form
     {
         if (e.Button == MouseButtons.Left)
         {
+            if (_isRotating)
+            {
+                // Rotation was performed, save it
+                _isRotating = false;
+                _libraryService.Save(_imageItems);
+            }
             _isDragging = false;
             _activeResizeHandle = ResizeHandle.None;
+            this.Cursor = Cursors.Default;
         }
     }
 
@@ -764,15 +920,41 @@ public class OverlayForm : Form
         const int WM_NCHITTEST = 0x0084;
         const int HTTRANSPARENT = -1;
 
-        // Когда стикер закреплён – он прозрачный для мыши на этапе хит-теста
         if (_imageItem.IsPinned && m.Msg == WM_NCHITTEST)
         {
-            // Говорим системе: "я прозрачный, ищи окно ниже"
             m.Result = (IntPtr)HTTRANSPARENT;
             return;
         }
 
         base.WndProc(ref m);
+    }
+
+    private void OverlayForm_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.R && !_imageItem.IsPinned)
+        {
+            // Toggle rotation mode with R key
+            _imageItem.IsRotationModeEnabled = !_imageItem.IsRotationModeEnabled;
+            _libraryService.Save(_imageItems);
+            
+            // Update context menu item if menu exists
+            if (_contextMenu != null)
+            {
+                foreach (ToolStripItem item in _contextMenu.Items)
+                {
+                    if (item is ToolStripMenuItem menuItem && menuItem.Text != null &&
+                        (menuItem.Text.Contains("Enable Rotation Mode") || menuItem.Text.Contains("Disable Rotation Mode")))
+                    {
+                        menuItem.Checked = _imageItem.IsRotationModeEnabled;
+                        menuItem.Text = _imageItem.IsRotationModeEnabled ? "Disable Rotation Mode (R)" : "Enable Rotation Mode (R)";
+                        break;
+                    }
+                }
+            }
+            
+            this.Invalidate();
+            e.Handled = true;
+        }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)

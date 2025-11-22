@@ -13,7 +13,6 @@ public partial class MainForm
         if (hasSelection && _listView.SelectedItems[0].Tag is ImageItem item)
         {
             ShowDetails(item);
-            // Обновляем текст кнопки Pin
             _btnPin.Text = item.IsPinned ? "📌 Unpin" : "📌 Pin / Open on Top";
         }
         else
@@ -30,20 +29,26 @@ public partial class MainForm
         }
     }
 
-    protected void ShowDetails(ImageItem item)
+    protected async void ShowDetails(ImageItem item)
     {
         try
         {
             if (File.Exists(item.FilePath))
             {
-                using var original = Image.FromFile(item.FilePath);
-                var preview = CreateThumbnail(original, 230, 200);
-                _previewBox.Image?.Dispose();
-                _previewBox.Image = preview;
+                var original = await Task.Run(() => Image.FromFile(item.FilePath));
+                int width, height;
+                using (original)
+                {
+                    var preview = CreateThumbnail(original, 230, 200);
+                    _previewBox.Image?.Dispose();
+                    _previewBox.Image = preview;
+                    width = original.Width;
+                    height = original.Height;
+                }
 
                 var fileInfo = new FileInfo(item.FilePath);
                 var details = $"Name: {item.DisplayName}\n\n" +
-                             $"Resolution: {original.Width} × {original.Height}\n" +
+                             $"Resolution: {width} × {height}\n" +
                              $"File size: {FormatFileSize(fileInfo.Length)}\n" +
                              $"Path: {item.FilePath}\n\n" +
                              $"Opacity: {item.Opacity}%\n" +
@@ -52,8 +57,6 @@ public partial class MainForm
                              $"Last used: {(item.LastUsed?.ToString("g") ?? "Never")}";
 
                 _detailsLabel.Text = details;
-                
-                // Show Unpin button if image is pinned and open
                 _btnUnpin.Visible = item.IsPinned && TryGetOverlay(item, out _);
             }
             else
@@ -79,4 +82,3 @@ public partial class MainForm
         _btnUnpin.Visible = false;
     }
 }
-

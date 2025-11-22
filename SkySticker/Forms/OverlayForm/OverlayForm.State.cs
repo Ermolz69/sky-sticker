@@ -2,8 +2,6 @@ namespace SkySticker.Forms;
 
 public partial class OverlayForm
 {
-    // State management methods - all methods that mutate _imageItem and call _libraryService.Save
-    
     protected void SaveState()
     {
         _libraryService.Save(_imageItems);

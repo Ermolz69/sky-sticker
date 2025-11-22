@@ -23,10 +23,15 @@ public partial class OverlayForm : Form
     protected bool _isRotating;
     protected Point _rotationStartPoint;
     protected float _rotationStartAngle;
+    protected bool _isResizing = false;
     protected Button? _settingsButton;
     protected ContextMenuStrip? _contextMenu;
     protected System.Windows.Forms.Timer? _fadeInTimer;
     protected float _fadeOpacity = 0f;
+    protected System.Windows.Forms.Timer? _saveTimer;
+    protected System.Drawing.Imaging.ImageAttributes? _cachedImageAttributes;
+    protected DateTime _lastInvalidateTime = DateTime.MinValue;
+    protected const int InvalidateThrottleMs = 16; // ~60 FPS
     
     // Constants
     protected const int ResizeHandleSize = 7;
@@ -60,20 +65,16 @@ public partial class OverlayForm : Form
     {
         this.SuspendLayout();
 
-        // Форма без рамки, прозрачная
         this.Text = _imageItem.DisplayName;
         this.FormBorderStyle = FormBorderStyle.None;
-        // Используем очень редкий цвет для прозрачности (RGB 1,0,1) - почти Magenta, но не совсем
-        // Этот цвет будет полностью прозрачным через COLORKEY
+        // RGB(1,0,1) becomes transparent via COLORKEY
         this.BackColor = Color.FromArgb(1, 0, 1);
         this.TransparencyKey = Color.FromArgb(1, 0, 1);
         this.ShowInTaskbar = false;
         this.StartPosition = FormStartPosition.Manual;
         this.DoubleBuffered = true;
-        this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.DoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Opaque, true);
+        this.SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.DoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Opaque | ControlStyles.OptimizedDoubleBuffer, true);
         this.UpdateStyles();
-
-        // Применяем сохранённые координаты и размер
         if (_imageItem.LastX.HasValue && _imageItem.LastY.HasValue)
         {
             this.Location = new Point(_imageItem.LastX.Value, _imageItem.LastY.Value);
@@ -95,10 +96,7 @@ public partial class OverlayForm : Form
         this.MinimumSize = new Size(50, 50);
         this.Opacity = _imageItem.Opacity / 100.0;
 
-        // Используем WinAPI для правильной прозрачности
         this.Load += OverlayForm_Load;
-
-        // Обработчики событий
         this.MouseDown += OverlayForm_MouseDown;
         this.MouseMove += OverlayForm_MouseMove;
         this.MouseUp += OverlayForm_MouseUp;
@@ -108,26 +106,23 @@ public partial class OverlayForm : Form
         this.SizeChanged += OverlayForm_SizeChanged;
         this.MouseClick += OverlayForm_MouseClick;
         this.KeyDown += OverlayForm_KeyDown;
-        this.KeyPreview = true; // Enable key events
+        this.KeyPreview = true;
 
-        // Кнопка настроек
         CreateSettingsButton();
         CreateContextMenu();
-        
-        // Устанавливаем TopMost после создания всех компонентов
         UpdateTopMost();
 
         this.ResumeLayout(false);
     }
 
-    private void LoadImage()
+    private async void LoadImage()
     {
         try
         {
             if (File.Exists(_imageItem.FilePath))
             {
                 _originalImage?.Dispose();
-                _originalImage = Image.FromFile(_imageItem.FilePath);
+                _originalImage = await Task.Run(() => Image.FromFile(_imageItem.FilePath));
                 this.Invalidate();
             }
             else
@@ -174,56 +169,75 @@ public partial class OverlayForm : Form
 
     private void OverlayForm_Load(object? sender, EventArgs e)
     {
-        // Используем WinAPI для правильной прозрачности
-        // Используем COLORKEY для цвета RGB(1,0,1) - он будет полностью прозрачным
         WinApiHelper.MakeTransparent(this.Handle);
-        // RGB(1,0,1) в формате BGR = 0x00010001
-        uint transparentKey = 0x00010001;
+        uint transparentKey = 0x00010001; // RGB(1,0,1) in BGR format
         var opacity = (byte)(_imageItem.Opacity * 255 / 100);
         WinApiHelper.SetLayeredWindowAttributes(this.Handle, transparentKey, opacity, WinApiHelper.LWA_COLORKEY | WinApiHelper.LWA_ALPHA);
-        
-        // Устанавливаем click-through если изображение закреплено
         WinApiHelper.SetClickThrough(this.Handle, _imageItem.IsPinned);
     }
 
     private void OverlayForm_Move(object? sender, EventArgs e)
     {
-        SavePositionAndSize();
+        // Position is saved only on drag/resize completion to avoid blocking UI thread
     }
 
     private void OverlayForm_SizeChanged(object? sender, EventArgs e)
     {
-        // Если изображение закреплено, не позволяем сворачивать окно
         if (_imageItem.IsPinned && this.WindowState == FormWindowState.Minimized)
         {
             this.WindowState = FormWindowState.Normal;
+            return;
         }
         else if (this.WindowState == FormWindowState.Minimized)
         {
             this.WindowState = FormWindowState.Normal;
+            return;
         }
 
-        // Если изображение закреплено, не показываем кнопку настроек
         if (_settingsButton != null && _isHovered && !_imageItem.IsPinned)
         {
             _settingsButton.Location = new Point(this.Width - SettingsButtonSize - 5, 5);
         }
 
-        // Принудительная перерисовка при изменении размера
-        this.Invalidate(true);
-        this.Update();
-        
-        SavePositionAndSize();
+        if (_resizeHandleRects != null)
+        {
+            UpdateResizeHandles();
+        }
+
+        // Additional refresh during resize ensures synchronization if ResizeWindow's refresh didn't complete
+        if (_isResizing)
+        {
+            this.Refresh();
+        }
+        else
+        {
+            ThrottledInvalidate();
+        }
     }
     
     protected override void SetVisibleCore(bool value)
     {
-        // Если изображение закреплено, не позволяем скрывать окно
         if (_imageItem.IsPinned && !value)
         {
-            return; // Игнорируем попытку скрыть окно
+            return;
         }
         base.SetVisibleCore(value);
+    }
+
+    protected void ScheduleSavePositionAndSize()
+    {
+        // Debounce: save only 500ms after last change
+        _saveTimer?.Stop();
+        _saveTimer?.Dispose();
+        _saveTimer = new System.Windows.Forms.Timer { Interval = 500 };
+        _saveTimer.Tick += (s, e) =>
+        {
+            SavePositionAndSize();
+            _saveTimer?.Stop();
+            _saveTimer?.Dispose();
+            _saveTimer = null;
+        };
+        _saveTimer.Start();
     }
 
     protected void SavePositionAndSize()
@@ -244,12 +258,27 @@ public partial class OverlayForm : Form
         this.TopMost = _imageItem.AlwaysOnTop || _imageItem.IsPinned;
     }
 
+    protected void ThrottledInvalidate()
+    {
+        var now = DateTime.Now;
+        var elapsed = (now - _lastInvalidateTime).TotalMilliseconds;
+        if (elapsed >= InvalidateThrottleMs)
+        {
+            this.Invalidate();
+            _lastInvalidateTime = now;
+        }
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        _saveTimer?.Stop();
+        _saveTimer?.Dispose();
         SavePositionAndSize();
         _fadeInTimer?.Stop();
         _fadeInTimer?.Dispose();
         _originalImage?.Dispose();
+        _cachedImageAttributes?.Dispose();
+        _cachedImageAttributes = null;
         base.OnFormClosing(e);
     }
 }

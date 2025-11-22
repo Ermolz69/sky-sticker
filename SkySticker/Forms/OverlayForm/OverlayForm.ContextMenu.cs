@@ -191,8 +191,7 @@ public partial class OverlayForm
     {
         _imageItem.Opacity = opacity;
         this.Opacity = opacity / 100.0;
-        // Обновляем альфа-канал через WinAPI с COLORKEY
-        uint transparentKey = 0x00010001; // RGB(1,0,1) в формате BGR
+        uint transparentKey = 0x00010001; // RGB(1,0,1) in BGR format
         var alpha = (byte)(opacity * 255 / 100);
         WinApiHelper.SetLayeredWindowAttributes(this.Handle, transparentKey, alpha, WinApiHelper.LWA_COLORKEY | WinApiHelper.LWA_ALPHA);
         SaveState();
@@ -202,10 +201,8 @@ public partial class OverlayForm
     {
         if (e.KeyCode == Keys.R && !_imageItem.IsPinned)
         {
-            // Toggle rotation mode with R key
             ApplyRotationMode(!_imageItem.IsRotationModeEnabled);
             
-            // Update context menu item if menu exists
             if (_contextMenu != null)
             {
                 foreach (ToolStripItem item in _contextMenu.Items)

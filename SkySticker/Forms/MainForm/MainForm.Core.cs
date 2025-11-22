@@ -6,11 +6,9 @@ namespace SkySticker.Forms;
 
 public partial class MainForm : Form
 {
-    // Core fields
     protected readonly ImageLibraryService _libraryService;
     protected List<ImageItem> _imageItems;
-    
-    // UI Controls
+    protected readonly Dictionary<Guid, Image> _thumbnailCache = new();
     protected ListView _listView = null!;
     protected ImageList _imageList = null!;
     protected TextBox _searchBox = null!;
@@ -34,14 +32,12 @@ public partial class MainForm : Form
     {
         this.SuspendLayout();
 
-        // ImageList для превью
         _imageList = new ImageList
         {
             ImageSize = new Size(64, 64),
             ColorDepth = ColorDepth.Depth32Bit
         };
 
-        // Search Box - только слева, не растягивается
         _searchBox = new TextBox
         {
             Location = new Point(12, 12),
@@ -51,7 +47,6 @@ public partial class MainForm : Form
         };
         _searchBox.TextChanged += SearchBox_TextChanged;
 
-        // ListView - слева, фиксированная ширина, не растягивается вправо
         _listView = new ListView
         {
             Location = new Point(12, 45),
@@ -65,10 +60,9 @@ public partial class MainForm : Form
         _listView.SelectedIndexChanged += ListView_SelectedIndexChanged;
         _listView.DoubleClick += ListView_DoubleClick;
 
-        // Details Panel - справа, фиксированная ширина, на одном уровне с ListView
         _detailsPanel = new Panel
         {
-            Location = new Point(428, 45), // 12 + 400 + 16 (отступ между ListView и DetailsPanel)
+            Location = new Point(428, 45),
             Size = new Size(250, 380),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left,
             BorderStyle = BorderStyle.FixedSingle,
@@ -112,7 +106,6 @@ public partial class MainForm : Form
         _detailsPanel.Controls.Add(_detailsLabel);
         _detailsPanel.Controls.Add(_btnUnpin);
 
-        // Bottom Panel for buttons
         var bottomPanel = new Panel
         {
             Height = 40,                      
@@ -123,11 +116,10 @@ public partial class MainForm : Form
 
         const int btnHeight = 30;
         
-        // Buttons
         _btnAdd = new Button
         {
             Text = "➕ Add",
-            Size = new Size(110, btnHeight),   // было 130 x 40
+            Size = new Size(110, btnHeight),
             Location = new Point(10, 5),
             Anchor = AnchorStyles.Bottom | AnchorStyles.Left,
             BackColor = Color.FromArgb(0, 120, 215),
@@ -171,20 +163,15 @@ public partial class MainForm : Form
         _btnPin.FlatAppearance.MouseOverBackColor = Color.FromArgb(6, 104, 6);
         _btnPin.Click += BtnPin_Click;
 
-        // Layout buttons in bottom panel
         bottomPanel.Controls.Add(_btnAdd);
         bottomPanel.Controls.Add(_btnRemove);
         bottomPanel.Controls.Add(_btnPin);
 
-        // MainForm
         this.Text = "SkySticker - Image Library";
         this.Size = new Size(690, 510);
-        // Минимальный размер: 12 (отступ слева) + 400 (ListView) + 16 (отступ) + 250 (DetailsPanel) + 12 (отступ справа) = 690
         this.MinimumSize = new Size(690, 400);
         this.StartPosition = FormStartPosition.CenterScreen;
         this.BackColor = Color.FromArgb(243, 243, 243);
-        
-        // Обработчик изменения размера для корректного позиционирования
         this.Resize += MainForm_Resize;
 
         this.Controls.Add(_searchBox);
@@ -193,11 +180,7 @@ public partial class MainForm : Form
         this.Controls.Add(bottomPanel);
 
         this.ResumeLayout(false);
-        
-        // Вызываем Resize для правильного начального позиционирования
         this.Load += (s, e) => MainForm_Resize(s, e);
-        
-        // Обработчик для закрытия всех оверлеев при закрытии главной формы
         this.FormClosed += MainForm_FormClosed;
     }
     
@@ -208,23 +191,18 @@ public partial class MainForm : Form
 
     private void MainForm_Resize(object? sender, EventArgs e)
     {
-        // Убеждаемся, что DetailsPanel не перекрывает ListView
-        // ListView заканчивается на: 12 + 400 = 412
-        // DetailsPanel должен начинаться не раньше: 412 + 16 = 428
         int listViewRight = _listView.Left + _listView.Width;
-        int minDetailsPanelLeft = listViewRight + 16; // Минимум 16px отступ
+        int minDetailsPanelLeft = listViewRight + 16;
         int detailsPanelWidth = 250;
         int rightMargin = 12;
         int currentDetailsPanelLeft = this.ClientSize.Width - detailsPanelWidth - rightMargin;
         
-        // Если DetailsPanel перекрывает ListView, перемещаем его вправо
         if (currentDetailsPanelLeft < minDetailsPanelLeft)
         {
             _detailsPanel.Left = minDetailsPanelLeft;
         }
         else
         {
-            // Иначе используем стандартное позиционирование от правого края
             _detailsPanel.Left = currentDetailsPanelLeft;
         }
         _detailsPanel.Width = detailsPanelWidth;
@@ -232,11 +210,12 @@ public partial class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        // Очищаем ресурсы
-        foreach (Image img in _imageList.Images)
+        _imageList.Images.Clear();
+        foreach (var thumbnail in _thumbnailCache.Values)
         {
-            img.Dispose();
+            thumbnail.Dispose();
         }
+        _thumbnailCache.Clear();
         _previewBox.Image?.Dispose();
         base.OnFormClosing(e);
     }

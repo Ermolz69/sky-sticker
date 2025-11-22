@@ -11,7 +11,6 @@ public partial class MainForm
         item.LastUsed = DateTime.Now;
         _libraryService.Save(_imageItems);
         
-        // If already open, just activate the window
         if (TryGetOverlay(item, out var existingOverlay) && existingOverlay != null)
         {
             existingOverlay.Activate();
@@ -24,7 +23,6 @@ public partial class MainForm
         overlay.Show();
         _openOverlays[item.Id] = overlay;
         
-        // Update details if this is the selected item
         if (_listView.SelectedItems.Count > 0 && _listView.SelectedItems[0].Tag is ImageItem selectedItem && selectedItem.Id == item.Id)
         {
             ShowDetails(item);
@@ -52,7 +50,6 @@ public partial class MainForm
 
     protected void CloseAllOverlays()
     {
-        // На всякий случай закрыть все оверлеи при закрытии главной формы
         foreach (var overlay in _openOverlays.Values.ToList())
         {
             if (!overlay.IsDisposed)

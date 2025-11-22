@@ -1,3 +1,5 @@
+using SkySticker.Models;
+
 namespace SkySticker.Forms;
 
 public partial class MainForm
@@ -10,9 +12,6 @@ public partial class MainForm
 
     private void RefreshListView()
     {
-        _listView.Items.Clear();
-        _imageList.Images.Clear();
-
         var searchText = _searchBox.Text.ToLower();
         var filteredItems = _imageItems.Where(item =>
             string.IsNullOrEmpty(searchText) ||
@@ -20,36 +19,68 @@ public partial class MainForm
             item.FilePath.ToLower().Contains(searchText)
         ).OrderByDescending(item => item.LastUsed ?? DateTime.MinValue).ToList();
 
+        var itemsToRemove = new List<ListViewItem>();
+        foreach (ListViewItem lvItem in _listView.Items)
+        {
+            if (lvItem.Tag is ImageItem imgItem && !filteredItems.Contains(imgItem))
+            {
+                itemsToRemove.Add(lvItem);
+            }
+        }
+        foreach (var item in itemsToRemove)
+        {
+            _listView.Items.Remove(item);
+        }
+
+        var existingItemIds = new HashSet<Guid>();
+        foreach (ListViewItem lvItem in _listView.Items)
+        {
+            if (lvItem.Tag is ImageItem imgItem)
+            {
+                existingItemIds.Add(imgItem.Id);
+            }
+        }
+
         foreach (var item in filteredItems)
         {
-            try
+            if (!existingItemIds.Contains(item.Id))
             {
-                Image? thumbnail = null;
-                if (File.Exists(item.FilePath))
+                try
                 {
-                    using var original = Image.FromFile(item.FilePath);
-                    thumbnail = CreateThumbnail(original, 64, 64);
-                    _imageList.Images.Add(item.Id.ToString(), thumbnail);
-                }
-                else
-                {
-                    // Placeholder для отсутствующих файлов
-                    thumbnail = new Bitmap(64, 64);
-                    using var g = Graphics.FromImage(thumbnail);
-                    g.Clear(Color.LightGray);
-                    g.DrawString("?", new Font("Arial", 24), Brushes.Gray, new PointF(20, 15));
-                    _imageList.Images.Add(item.Id.ToString(), thumbnail);
-                }
+                    Image? thumbnail = null;
+                    
+                    if (!_thumbnailCache.TryGetValue(item.Id, out thumbnail))
+                    {
+                        if (File.Exists(item.FilePath))
+                        {
+                            using var original = Image.FromFile(item.FilePath);
+                            thumbnail = CreateThumbnail(original, 64, 64);
+                            _thumbnailCache[item.Id] = thumbnail;
+                        }
+                        else
+                        {
+                            thumbnail = new Bitmap(64, 64);
+                            using var g = Graphics.FromImage(thumbnail);
+                            g.Clear(Color.LightGray);
+                            g.DrawString("?", new Font("Arial", 24), Brushes.Gray, new PointF(20, 15));
+                            _thumbnailCache[item.Id] = thumbnail;
+                        }
+                    }
+                    
+                    if (!_imageList.Images.ContainsKey(item.Id.ToString()))
+                    {
+                        _imageList.Images.Add(item.Id.ToString(), thumbnail);
+                    }
 
-                var listItem = new ListViewItem(item.DisplayName, item.Id.ToString())
+                    var listItem = new ListViewItem(item.DisplayName, item.Id.ToString())
+                    {
+                        Tag = item
+                    };
+                    _listView.Items.Add(listItem);
+                }
+                catch
                 {
-                    Tag = item
-                };
-                _listView.Items.Add(listItem);
-            }
-            catch
-            {
-                // Пропускаем проблемные изображения
+                }
             }
         }
     }

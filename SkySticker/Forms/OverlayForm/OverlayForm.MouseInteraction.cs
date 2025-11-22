@@ -4,9 +4,11 @@ namespace SkySticker.Forms;
 
 public partial class OverlayForm
 {
+    private Rectangle[]? _resizeHandleRects;
+    private Rectangle _lastClientRect;
+    
     private void OverlayForm_MouseEnter(object? sender, EventArgs e)
     {
-        // Если изображение закреплено, не показываем интерактивные элементы
         if (_imageItem.IsPinned)
             return;
             
@@ -32,7 +34,6 @@ public partial class OverlayForm
 
     private void OverlayForm_MouseDown(object? sender, MouseEventArgs e)
     {
-        // Если изображение закреплено, блокируем все интеракции
         if (_imageItem.IsPinned)
             return;
             
@@ -40,7 +41,6 @@ public partial class OverlayForm
         {
             if (_imageItem.IsRotationModeEnabled)
             {
-                // Start rotation when rotation mode is enabled
                 _isRotating = true;
                 _rotationStartPoint = e.Location;
                 _rotationStartAngle = _imageItem.RotationAngle;
@@ -56,6 +56,11 @@ public partial class OverlayForm
                     _formStartLocation = this.Location;
                     WinApiHelper.MoveWindow(this.Handle);
                 }
+                else
+                {
+                    _dragStartPoint = e.Location;
+                    _isResizing = true;
+                }
             }
         }
         else if (e.Button == MouseButtons.Right)
@@ -66,7 +71,6 @@ public partial class OverlayForm
 
     private void OverlayForm_MouseMove(object? sender, MouseEventArgs e)
     {
-        // Если изображение закреплено, блокируем все интеракции
         if (_imageItem.IsPinned)
         {
             this.Cursor = Cursors.Default;
@@ -75,29 +79,22 @@ public partial class OverlayForm
         
         if (_isRotating && e.Button == MouseButtons.Left)
         {
-            // Calculate rotation angle based on mouse movement
             var centerX = this.ClientRectangle.Width / 2.0f;
             var centerY = this.ClientRectangle.Height / 2.0f;
             
-            // Calculate angle from center to start point
             var startAngle = (float)(Math.Atan2(_rotationStartPoint.Y - centerY, _rotationStartPoint.X - centerX) * 180.0 / Math.PI);
-            
-            // Calculate angle from center to current point
             var currentAngle = (float)(Math.Atan2(e.Location.Y - centerY, e.Location.X - centerX) * 180.0 / Math.PI);
-            
-            // Calculate rotation delta
             var deltaAngle = currentAngle - startAngle;
             
-            // Apply rotation
             _imageItem.RotationAngle = (_rotationStartAngle + deltaAngle) % 360;
             if (_imageItem.RotationAngle < 0)
                 _imageItem.RotationAngle += 360;
             
-            this.Invalidate();
+            ThrottledInvalidate();
         }
         else if (_isDragging && e.Button == MouseButtons.Left)
         {
-            // Перемещение обрабатывается через WinAPI
+            // Dragging is handled via WinAPI
         }
         else if (_activeResizeHandle != ResizeHandle.None && e.Button == MouseButtons.Left)
         {
@@ -107,7 +104,6 @@ public partial class OverlayForm
         {
             if (_imageItem.IsRotationModeEnabled)
             {
-                // Show rotation cursor when rotation mode is enabled
                 this.Cursor = Cursors.Cross;
             }
             else
@@ -131,10 +127,22 @@ public partial class OverlayForm
         {
             if (_isRotating)
             {
-                // Rotation was performed, save it
                 _isRotating = false;
                 SaveRotationState();
             }
+            
+            if (_isResizing || _activeResizeHandle != ResizeHandle.None)
+            {
+                _isResizing = false;
+                SavePositionAndSize();
+                this.Invalidate();
+            }
+            
+            if (_isDragging)
+            {
+                SavePositionAndSize();
+            }
+            
             _isDragging = false;
             _activeResizeHandle = ResizeHandle.None;
             this.Cursor = Cursors.Default;
@@ -143,7 +151,6 @@ public partial class OverlayForm
 
     private void OverlayForm_MouseClick(object? sender, MouseEventArgs e)
     {
-        // Если изображение закреплено, блокируем контекстное меню
         if (_imageItem.IsPinned)
             return;
             
@@ -153,27 +160,44 @@ public partial class OverlayForm
         }
     }
 
-    protected ResizeHandle GetResizeHandle(Point mousePos)
+    private void UpdateResizeHandles()
     {
         var rect = this.ClientRectangle;
         var size = ResizeHandleSize;
+        
+        _resizeHandleRects = new[]
+        {
+            new Rectangle(rect.Left, rect.Top, size, size), // TopLeft
+            new Rectangle(rect.Right - size, rect.Top, size, size), // TopRight
+            new Rectangle(rect.Left, rect.Bottom - size, size, size), // BottomLeft
+            new Rectangle(rect.Right - size, rect.Bottom - size, size, size), // BottomRight
+            new Rectangle(rect.Left + rect.Width / 2 - size / 2, rect.Top, size, size), // Top
+            new Rectangle(rect.Left + rect.Width / 2 - size / 2, rect.Bottom - size, size, size), // Bottom
+            new Rectangle(rect.Left, rect.Top + rect.Height / 2 - size / 2, size, size), // Left
+            new Rectangle(rect.Right - size, rect.Top + rect.Height / 2 - size / 2, size, size) // Right
+        };
+        _lastClientRect = rect;
+    }
 
-        if (new Rectangle(rect.Left, rect.Top, size, size).Contains(mousePos))
-            return ResizeHandle.TopLeft;
-        if (new Rectangle(rect.Right - size, rect.Top, size, size).Contains(mousePos))
-            return ResizeHandle.TopRight;
-        if (new Rectangle(rect.Left, rect.Bottom - size, size, size).Contains(mousePos))
-            return ResizeHandle.BottomLeft;
-        if (new Rectangle(rect.Right - size, rect.Bottom - size, size, size).Contains(mousePos))
-            return ResizeHandle.BottomRight;
-        if (new Rectangle(rect.Left + rect.Width / 2 - size / 2, rect.Top, size, size).Contains(mousePos))
-            return ResizeHandle.Top;
-        if (new Rectangle(rect.Left + rect.Width / 2 - size / 2, rect.Bottom - size, size, size).Contains(mousePos))
-            return ResizeHandle.Bottom;
-        if (new Rectangle(rect.Left, rect.Top + rect.Height / 2 - size / 2, size, size).Contains(mousePos))
-            return ResizeHandle.Left;
-        if (new Rectangle(rect.Right - size, rect.Top + rect.Height / 2 - size / 2, size, size).Contains(mousePos))
-            return ResizeHandle.Right;
+    protected ResizeHandle GetResizeHandle(Point mousePos)
+    {
+        var rect = this.ClientRectangle;
+        
+        if (_resizeHandleRects == null || !rect.Equals(_lastClientRect))
+        {
+            UpdateResizeHandles();
+        }
+
+        if (_resizeHandleRects == null) return ResizeHandle.None;
+
+        if (_resizeHandleRects[0].Contains(mousePos)) return ResizeHandle.TopLeft;
+        if (_resizeHandleRects[1].Contains(mousePos)) return ResizeHandle.TopRight;
+        if (_resizeHandleRects[2].Contains(mousePos)) return ResizeHandle.BottomLeft;
+        if (_resizeHandleRects[3].Contains(mousePos)) return ResizeHandle.BottomRight;
+        if (_resizeHandleRects[4].Contains(mousePos)) return ResizeHandle.Top;
+        if (_resizeHandleRects[5].Contains(mousePos)) return ResizeHandle.Bottom;
+        if (_resizeHandleRects[6].Contains(mousePos)) return ResizeHandle.Left;
+        if (_resizeHandleRects[7].Contains(mousePos)) return ResizeHandle.Right;
 
         return ResizeHandle.None;
     }
@@ -234,9 +258,11 @@ public partial class OverlayForm
 
         if (newSize.Width >= this.MinimumSize.Width && newSize.Height >= this.MinimumSize.Height)
         {
-            this.Location = newLocation;
-            this.Size = newSize;
+            this.SetBounds(newLocation.X, newLocation.Y, newSize.Width, newSize.Height, BoundsSpecified.All);
             _dragStartPoint = mousePos;
+            
+            // Use Refresh() for synchronous repaint during resize to prevent visual lag
+            this.Refresh();
         }
     }
 }

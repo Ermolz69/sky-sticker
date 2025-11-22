@@ -123,12 +123,10 @@ public static class WinApiHelper
         var exStyle = GetWindowLong(handle, GWL_EXSTYLE);
         if (clickThrough)
         {
-            // Добавляем WS_EX_TRANSPARENT для click-through (клики проходят сквозь окно)
             SetWindowLong(handle, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT);
         }
         else
         {
-            // Убираем WS_EX_TRANSPARENT
             SetWindowLong(handle, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT);
         }
     }

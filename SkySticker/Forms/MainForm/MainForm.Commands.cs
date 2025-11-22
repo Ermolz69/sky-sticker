@@ -63,11 +63,9 @@ public partial class MainForm
         {
             if (item.IsPinned)
             {
-                // Unpin
                 item.IsPinned = false;
                 _libraryService.Save(_imageItems);
                 
-                // Update OverlayForm if it's open
                 if (TryGetOverlay(item, out var overlay) && overlay != null)
                 {
                     overlay.SetPinned(false);
@@ -75,12 +73,10 @@ public partial class MainForm
                 
                 RefreshListView();
                 ShowDetails(item);
-                // Update Pin button text
                 _btnPin.Text = "📌 Pin / Open on Top";
             }
             else
             {
-                // Open/Pin
                 OpenOverlay(item);
             }
         }
@@ -93,23 +89,17 @@ public partial class MainForm
         var selectedItem = _listView.SelectedItems[0];
         if (selectedItem.Tag is ImageItem item && item.IsPinned)
         {
-            // Save the item ID to restore selection after refresh
             var itemId = item.Id;
             
-            // Update OverlayForm FIRST if it's open (before changing item.IsPinned)
             if (TryGetOverlay(item, out var overlay) && overlay != null)
             {
                 overlay.SetPinned(false);
             }
             
-            // Unpin the item
             item.IsPinned = false;
             _libraryService.Save(_imageItems);
-            
-            // Refresh the list view
             RefreshListView();
             
-            // Restore selection after refresh
             foreach (ListViewItem lvItem in _listView.Items)
             {
                 if (lvItem.Tag is ImageItem imgItem && imgItem.Id == itemId)
@@ -120,11 +110,9 @@ public partial class MainForm
                 }
             }
             
-            // Update UI - this will also hide the Unpin button since item is no longer pinned
             if (_listView.SelectedItems.Count > 0 && _listView.SelectedItems[0].Tag is ImageItem selectedImgItem)
             {
                 ShowDetails(selectedImgItem);
-                // Update Pin button text
                 _btnPin.Text = "📌 Pin / Open on Top";
             }
         }
